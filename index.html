@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FishLog</title>
+<meta name="theme-color" content="#0b3d5c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="FishLog">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="lib/leaflet.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="count" class="chip">0 prise</div>
+
+<div class="side-buttons">
+  <button id="btn-locate" class="round" aria-label="Ma position">📍</button>
+  <button id="btn-menu" class="round" aria-label="Menu">⋯</button>
+</div>
+
+<button id="fab" class="fab" aria-label="Ajouter une prise">+</button>
+
+<!-- Fenêtre d'ajout / modification -->
+<div id="sheet-add" class="backdrop" hidden>
+  <div class="sheet" role="dialog" aria-modal="true">
+    <header>
+      <button type="button" id="add-cancel" class="link">Annuler</button>
+      <h2 id="add-title">Nouvelle prise</h2>
+      <button type="button" id="add-save" class="link strong">Enregistrer</button>
+    </header>
+
+    <div class="body">
+      <label class="photo-pick" for="photo-input">
+        <img id="photo-preview" alt="" hidden>
+        <span id="photo-placeholder">📷 Ajouter une photo</span>
+      </label>
+      <input id="photo-input" type="file" accept="image/*" hidden>
+      <p id="photo-status" class="hint"></p>
+
+      <div class="group">
+        <label>Espèce
+          <select id="f-species"></select>
+        </label>
+        <label id="custom-wrap" hidden>Nom de l'espèce
+          <input id="f-custom" type="text" autocomplete="off" placeholder="Ex. : Truite arc-en-ciel">
+        </label>
+        <label>Taille (cm)
+          <input id="f-length" type="text" inputmode="decimal" autocomplete="off" placeholder="Ex. : 62">
+        </label>
+      </div>
+
+      <div class="group">
+        <label>Date et heure
+          <input id="f-date" type="datetime-local">
+        </label>
+        <div class="row2">
+          <label>Latitude
+            <input id="f-lat" type="text" inputmode="decimal" autocomplete="off">
+          </label>
+          <label>Longitude
+            <input id="f-lon" type="text" inputmode="decimal" autocomplete="off">
+          </label>
+        </div>
+        <div id="pickmap"></div>
+        <div class="row-actions">
+          <p class="hint">Touche la carte ou déplace le repère pour ajuster le lieu.</p>
+          <button type="button" id="btn-here" class="small">Ma position</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Fiche d'une prise -->
+<div id="sheet-detail" class="backdrop" hidden>
+  <div class="sheet" role="dialog" aria-modal="true">
+    <header>
+      <button type="button" id="det-close" class="link">Fermer</button>
+      <h2 id="det-title"></h2>
+      <button type="button" id="det-edit" class="link strong">Modifier</button>
+    </header>
+    <div class="body">
+      <img id="det-photo" alt="" hidden>
+      <dl class="facts">
+        <div><dt>Taille</dt><dd id="det-length"></dd></div>
+        <div><dt>Date</dt><dd id="det-date"></dd></div>
+        <div><dt>Position</dt><dd id="det-pos"></dd></div>
+      </dl>
+      <button type="button" id="det-delete" class="danger">Supprimer cette prise</button>
+    </div>
+  </div>
+</div>
+
+<!-- Menu -->
+<div id="sheet-menu" class="backdrop" hidden>
+  <div class="sheet" role="dialog" aria-modal="true">
+    <header>
+      <span></span>
+      <h2>Menu</h2>
+      <button type="button" id="menu-close" class="link strong">OK</button>
+    </header>
+    <div class="body">
+      <label class="switch-row">
+        <span>Afficher les noms (lieux, cours d'eau)</span>
+        <input type="checkbox" id="opt-labels">
+      </label>
+      <button type="button" id="btn-export" class="menu-btn">Sauvegarder mes prises (fichier)</button>
+      <button type="button" id="btn-import" class="menu-btn">Restaurer depuis une sauvegarde</button>
+      <input id="import-input" type="file" accept="application/json,.json" hidden>
+      <p id="menu-status" class="hint"></p>
+      <p class="hint">Pense à faire une sauvegarde de temps en temps : les données ne sont stockées que sur ce téléphone.</p>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="lib/leaflet.js"></script>
+<script src="lib/exifr.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
