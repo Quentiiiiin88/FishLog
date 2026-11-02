@@ -6,6 +6,8 @@ const SPECIES = [
   'Black-bass', 'Truite fario', 'Carpe commune', 'Gardon', 'Brème',
   'Barbeau', 'Ablette'
 ];
+const TECHNIQUES = ['Leurre', 'Vif', 'Coup', 'Drop shot'];
+const BAITS = ['Ver de terre', 'Asticot', 'Pain'];
 const OTHER = 'Autre…';
 
 const TILES_SAT = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
@@ -14,6 +16,13 @@ const ATTR = 'Imagerie © Esri, Maxar, Earthstar Geographics';
 
 /* ============ Petits outils ============ */
 const $ = (s) => document.querySelector(s);
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
 
 function toast(msg, ms = 2600) {
   const t = $('#toast');
@@ -30,13 +39,24 @@ function toLocalInput(ts) {
 function fmtDate(ts) {
   return new Date(ts).toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short' });
 }
+function fmtDay(ts) {
+  return new Date(ts).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
+}
 function num(str) {
   const v = parseFloat(String(str).trim().replace(',', '.'));
   return Number.isFinite(v) ? v : null;
 }
+// length === null signifie "non mesuré"
 function fmtLen(v) {
-  return `${String(v).replace('.', ',')} cm`;
+  return v === null || v === undefined ? 'Non mesuré' : `${String(v).replace('.', ',')} cm`;
 }
+function fmtTech(c) {
+  if (!c.technique) return '';
+  return c.bait ? `${c.technique} · ${c.bait}` : c.technique;
+}
+const yearOf = (c) => new Date(c.ts).getFullYear();
+const speciesKey = (s) => String(s).trim().toLowerCase();
+const plural = (n, w) => `${n} ${w}${n > 1 ? 's' : ''}`;
 
 /* ============ Stockage (IndexedDB) ============ */
 const DB = (() => {
@@ -110,6 +130,7 @@ async function readMeta(file) {
 /* ============ Carte principale ============ */
 let map, pinLayer, labelsLayer, userDot;
 let catches = [];
+let tab = 'map';
 
 function initMap() {
   map = L.map('map', { zoomControl: false, attributionControl: true, worldCopyJump: true })
@@ -119,10 +140,12 @@ function initMap() {
   L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map);
   pinLayer = L.layerGroup().addTo(map);
 
-  if (localStorage.getItem('fishlog.labels') === '1') {
-    $('#opt-labels').checked = true;
-    labelsLayer.addTo(map);
-  }
+  try {
+    if (localStorage.getItem('fishlog.labels') === '1') {
+      $('#opt-labels').checked = true;
+      labelsLayer.addTo(map);
+    }
+  } catch (_) { /* stockage indisponible */ }
 }
 
 function renderPins() {
@@ -133,8 +156,7 @@ function renderPins() {
       .on('click', () => openDetail(c.id))
       .addTo(pinLayer);
   });
-  const n = catches.length;
-  $('#count').textContent = `${n} prise${n > 1 ? 's' : ''}`;
+  $('#count').textContent = plural(catches.length, 'prise');
 }
 
 function fitToCatches() {
@@ -161,6 +183,143 @@ function locateUser(centerMap = true) {
   });
 }
 
+/* ============ Onglets ============ */
+function setTab(name) {
+  tab = name;
+  document.body.className = 'tab-' + name;
+  document.querySelectorAll('#tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
+  $('#view-gallery').hidden = name !== 'gallery';
+  $('#view-records').hidden = name !== 'records';
+  if (name === 'gallery') renderGallery();
+  else if (name === 'records') renderRecords();
+  else setTimeout(() => map.invalidateSize(), 50);
+}
+
+function refreshAll() {
+  renderPins();
+  if (tab === 'gallery') renderGallery();
+  else if (tab === 'records') renderRecords();
+}
+
+function thumbEl(c, urls) {
+  const box = el('div', 'thumb');
+  const blob = c && (c.thumb || c.photo);
+  if (blob) {
+    const u = URL.createObjectURL(blob);
+    urls.push(u);
+    const img = el('img');
+    img.src = u; img.alt = ''; img.loading = 'lazy';
+    box.appendChild(img);
+  } else {
+    box.textContent = '🐟';
+  }
+  return box;
+}
+
+/* ---- Galerie ---- */
+let galleryUrls = [];
+
+function fillFilter(sel, allLabel, entries, current) {
+  // entries : [[valeur, libellé], ...]
+  sel.innerHTML = '';
+  const first = document.createElement('option');
+  first.value = ''; first.textContent = allLabel;
+  sel.appendChild(first);
+  entries.forEach(([v, label]) => {
+    const o = document.createElement('option');
+    o.value = v; o.textContent = label;
+    sel.appendChild(o);
+  });
+  sel.value = entries.some(([v]) => v === current) ? current : '';
+}
+
+function renderGallery() {
+  galleryUrls.forEach((u) => URL.revokeObjectURL(u));
+  galleryUrls = [];
+
+  const sSel = $('#g-species'), ySel = $('#g-year');
+  const names = new Map();
+  catches.forEach((c) => { const k = speciesKey(c.species); if (!names.has(k)) names.set(k, c.species.trim()); });
+  const speciesEntries = [...names.entries()].sort((a, b) => a[1].localeCompare(b[1], 'fr'));
+  const yearEntries = [...new Set(catches.map(yearOf))].sort((a, b) => b - a).map((y) => [String(y), String(y)]);
+  fillFilter(sSel, 'Toutes espèces', speciesEntries, sSel.value);
+  fillFilter(ySel, 'Toutes années', yearEntries, ySel.value);
+
+  const fs = sSel.value, fy = ySel.value;
+  const list = catches
+    .filter((c) => (!fs || speciesKey(c.species) === fs) && (!fy || String(yearOf(c)) === fy))
+    .sort((a, b) => b.ts - a.ts);
+
+  $('#g-count').textContent = list.length === catches.length
+    ? plural(list.length, 'prise')
+    : `${plural(list.length, 'prise')} sur ${catches.length}`;
+
+  const grid = $('#g-grid');
+  grid.innerHTML = '';
+  if (!list.length) {
+    grid.appendChild(el('div', 'empty', catches.length ? 'Aucune prise avec ces filtres.' : 'Aucune prise pour l\'instant. Touche « + » pour en ajouter une.'));
+    return;
+  }
+  list.forEach((c) => {
+    const card = el('button', 'card');
+    card.type = 'button';
+    card.appendChild(thumbEl(c, galleryUrls));
+    const meta = el('div', 'meta');
+    meta.appendChild(el('div', 'name', c.species));
+    meta.appendChild(el('div', 'len', fmtLen(c.length)));
+    const tech = fmtTech(c);
+    meta.appendChild(el('div', 'sub', tech ? `${fmtDay(c.ts)} · ${tech}` : fmtDay(c.ts)));
+    card.appendChild(meta);
+    card.addEventListener('click', () => openDetail(c.id));
+    grid.appendChild(card);
+  });
+}
+
+/* ---- Records ---- */
+let recordUrls = [];
+
+function renderRecords() {
+  recordUrls.forEach((u) => URL.revokeObjectURL(u));
+  recordUrls = [];
+
+  const groups = new Map();
+  [...catches].sort((a, b) => a.ts - b.ts).forEach((c) => {
+    const k = speciesKey(c.species);
+    let g = groups.get(k);
+    if (!g) { g = { name: c.species.trim(), count: 0, best: null, any: c }; groups.set(k, g); }
+    g.count++;
+    g.any = c;
+    if (c.length !== null && c.length !== undefined && (!g.best || c.length > g.best.length)) g.best = c;
+  });
+  const list = [...groups.values()].sort((a, b) =>
+    (b.best ? b.best.length : -1) - (a.best ? a.best.length : -1) || a.name.localeCompare(b.name, 'fr'));
+
+  $('#r-summary').textContent = catches.length
+    ? `${plural(catches.length, 'prise')} · ${plural(list.length, 'espèce')}. Plus grosse prise de chaque espèce.`
+    : '';
+
+  const box = $('#r-list');
+  box.innerHTML = '';
+  if (!list.length) {
+    box.appendChild(el('div', 'empty', 'Aucun record pour l\'instant.'));
+    return;
+  }
+  list.forEach((g) => {
+    const ref = g.best || g.any;
+    const card = el('button', 'rcard');
+    card.type = 'button';
+    card.appendChild(thumbEl(ref, recordUrls));
+    const body = el('div');
+    body.appendChild(el('div', 'name', g.name));
+    body.appendChild(el('div', g.best ? 'len' : 'len none', g.best ? fmtLen(g.best.length) : 'Aucune taille mesurée'));
+    const sub = g.best ? `${fmtDay(g.best.ts)} · ${plural(g.count, 'prise')}` : plural(g.count, 'prise');
+    body.appendChild(el('div', 'sub', sub));
+    card.appendChild(body);
+    card.addEventListener('click', () => openDetail(ref.id));
+    box.appendChild(card);
+  });
+}
+
 /* ============ Fenêtres ============ */
 function show(id) { $(id).hidden = false; }
 function hide(id) { $(id).hidden = true; }
@@ -171,14 +330,43 @@ let photoBlob = null;     // photo courante (Blob) ou null
 let photoUrl = null;
 let pickMap, pickMarker;
 
-function fillSpeciesSelect() {
-  const sel = $('#f-species');
+function fillSelect(sel, items, placeholder) {
   sel.innerHTML = '';
-  [...SPECIES, OTHER].forEach((s) => {
+  if (placeholder) {
+    const p = document.createElement('option');
+    p.value = ''; p.textContent = placeholder;
+    sel.appendChild(p);
+  }
+  [...items, OTHER].forEach((s) => {
     const o = document.createElement('option');
     o.value = s; o.textContent = s;
     sel.appendChild(o);
   });
+}
+
+// Remplit une liste + son champ libre à partir d'une valeur enregistrée
+function setChoice(sel, custom, value, list) {
+  if (!value) { sel.value = ''; custom.value = ''; }
+  else if (list.includes(value)) { sel.value = value; custom.value = ''; }
+  else { sel.value = OTHER; custom.value = value; }
+}
+// Lit la valeur choisie ('' si rien, texte libre si « Autre… »)
+function getChoice(sel, custom) {
+  return sel.value === OTHER ? (custom.value.trim() || 'Autre') : sel.value;
+}
+
+function updateFormVisibility() {
+  $('#custom-wrap').hidden = $('#f-species').value !== OTHER;
+  const tech = $('#f-tech').value;
+  $('#tech-custom-wrap').hidden = tech !== OTHER;
+  $('#bait-wrap').hidden = tech !== 'Coup';
+  $('#bait-custom-wrap').hidden = !(tech === 'Coup' && $('#f-bait').value === OTHER);
+}
+
+function updateUnmeasured() {
+  const un = $('#f-unmeasured').checked;
+  $('#f-length').disabled = un;
+  if (un) $('#f-length').value = '';
 }
 
 function setPhoto(blob) {
@@ -228,20 +416,27 @@ function openAdd(c = null) {
   let lat = center.lat, lon = center.lng;
 
   if (c) {
-    $('#f-species').value = SPECIES.includes(c.species) ? c.species : OTHER;
-    $('#f-custom').value = SPECIES.includes(c.species) ? '' : c.species;
-    $('#f-length').value = String(c.length).replace('.', ',');
+    setChoice($('#f-species'), $('#f-custom'), c.species, SPECIES);
+    const unmeasured = c.length === null || c.length === undefined;
+    $('#f-unmeasured').checked = unmeasured;
+    $('#f-length').value = unmeasured ? '' : String(c.length).replace('.', ',');
     $('#f-date').value = toLocalInput(c.ts);
+    setChoice($('#f-tech'), $('#f-tech-custom'), c.technique || '', TECHNIQUES);
+    setChoice($('#f-bait'), $('#f-bait-custom'), c.bait || '', BAITS);
     lat = c.lat; lon = c.lon;
     setPhoto(c.photo || null);
   } else {
     $('#f-species').value = SPECIES[0];
     $('#f-custom').value = '';
+    $('#f-unmeasured').checked = false;
     $('#f-length').value = '';
     $('#f-date').value = toLocalInput(Date.now());
+    $('#f-tech').value = ''; $('#f-tech-custom').value = '';
+    $('#f-bait').value = ''; $('#f-bait-custom').value = '';
     setPhoto(null);
   }
-  $('#custom-wrap').hidden = $('#f-species').value !== OTHER;
+  updateUnmeasured();
+  updateFormVisibility();
 
   show('#sheet-add');
   $('#f-lat').value = lat.toFixed(6);
@@ -282,17 +477,30 @@ async function onPhotoChosen(file) {
 
 async function saveCatch() {
   const species = $('#f-species').value === OTHER ? $('#f-custom').value.trim() : $('#f-species').value;
-  const length = num($('#f-length').value);
   const lat = num($('#f-lat').value);
   const lon = num($('#f-lon').value);
   const dateStr = $('#f-date').value;
   const ts = dateStr ? new Date(dateStr).getTime() : Date.now();
 
+  let length = null;
+  if (!$('#f-unmeasured').checked) {
+    length = num($('#f-length').value);
+    if (length === null || length <= 0) return toast('Indique la taille en cm, ou coche « Non mesuré »');
+  }
   if (!species) return toast('Indique l\'espèce');
-  if (length === null || length <= 0) return toast('Indique la taille en cm');
   if (lat === null || lon === null || Math.abs(lat) > 90 || Math.abs(lon) > 180) return toast('Position invalide');
 
-  const rec = { species, length, ts, lat, lon, photo: photoBlob || null };
+  const technique = getChoice($('#f-tech'), $('#f-tech-custom'));
+  const bait = technique === 'Coup' ? getChoice($('#f-bait'), $('#f-bait-custom')) : '';
+
+  let thumb = null;
+  if (photoBlob) {
+    thumb = (editing && editing.photo === photoBlob && editing.thumb)
+      ? editing.thumb
+      : await shrink(photoBlob, 420, 0.72).catch(() => null);
+  }
+
+  const rec = { species, length, ts, lat, lon, technique, bait, photo: photoBlob || null, thumb };
   if (editing) rec.id = editing.id;
   try {
     await DB.put(rec);
@@ -300,7 +508,7 @@ async function saveCatch() {
     return toast('Échec de l\'enregistrement');
   }
   catches = await DB.all();
-  renderPins();
+  refreshAll();
   closeAdd();
   map.setView([lat, lon], Math.max(map.getZoom(), 15));
   toast('Prise enregistrée');
@@ -315,6 +523,9 @@ function openDetail(id) {
   detailId = id;
   $('#det-title').textContent = c.species;
   $('#det-length').textContent = fmtLen(c.length);
+  const tech = fmtTech(c);
+  $('#det-tech-row').hidden = !tech;
+  $('#det-tech').textContent = tech;
   $('#det-date').textContent = fmtDate(c.ts);
   $('#det-pos').textContent = `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}`;
   const img = $('#det-photo');
@@ -335,7 +546,7 @@ async function deleteDetail() {
   if (!confirm('Supprimer cette prise ?')) return;
   await DB.del(detailId);
   catches = await DB.all();
-  renderPins();
+  refreshAll();
   closeDetail();
 }
 
@@ -352,10 +563,14 @@ async function exportAll() {
   try {
     const items = [];
     for (const c of catches) {
-      items.push({ species: c.species, length: c.length, ts: c.ts, lat: c.lat, lon: c.lon,
-        photo: c.photo ? await blobToDataUrl(c.photo) : null });
+      items.push({
+        species: c.species, length: c.length === undefined ? null : c.length,
+        ts: c.ts, lat: c.lat, lon: c.lon,
+        technique: c.technique || '', bait: c.bait || '',
+        photo: c.photo ? await blobToDataUrl(c.photo) : null
+      });
     }
-    const json = JSON.stringify({ app: 'fishlog', version: 1, exported: Date.now(), catches: items });
+    const json = JSON.stringify({ app: 'fishlog', version: 2, exported: Date.now(), catches: items });
     const name = `fishlog-${new Date().toISOString().slice(0, 10)}.json`;
     const file = new File([json], name, { type: 'application/json' });
 
@@ -367,7 +582,7 @@ async function exportAll() {
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     }
-    $('#menu-status').textContent = `${items.length} prise(s) sauvegardée(s).`;
+    $('#menu-status').textContent = `${plural(items.length, 'prise')} sauvegardée(s).`;
   } catch (e) {
     $('#menu-status').textContent = e && e.name === 'AbortError' ? '' : 'La sauvegarde a échoué.';
   }
@@ -384,13 +599,18 @@ async function importAll(file) {
     for (const c of data.catches) {
       const key = `${c.ts}|${c.lat}|${c.lon}`;
       if (known.has(key)) continue;
-      await DB.put({ species: c.species, length: c.length, ts: c.ts, lat: c.lat, lon: c.lon,
-        photo: c.photo ? await dataUrlToBlob(c.photo) : null });
+      const photo = c.photo ? await dataUrlToBlob(c.photo) : null;
+      const thumb = photo ? await shrink(photo, 420, 0.72).catch(() => null) : null;
+      await DB.put({
+        species: c.species, length: c.length === undefined ? null : c.length,
+        ts: c.ts, lat: c.lat, lon: c.lon,
+        technique: c.technique || '', bait: c.bait || '', photo, thumb
+      });
       known.add(key); added++;
     }
     catches = await DB.all();
-    renderPins();
-    $('#menu-status').textContent = `${added} prise(s) ajoutée(s).`;
+    refreshAll();
+    $('#menu-status').textContent = `${plural(added, 'prise')} ajoutée(s).`;
   } catch (e) {
     $('#menu-status').textContent = 'Fichier de sauvegarde non reconnu.';
   }
@@ -399,7 +619,9 @@ async function importAll(file) {
 /* ============ Démarrage ============ */
 async function main() {
   initMap();
-  fillSpeciesSelect();
+  fillSelect($('#f-species'), SPECIES);
+  fillSelect($('#f-tech'), TECHNIQUES, 'Non précisée');
+  fillSelect($('#f-bait'), BAITS, 'Non précisé');
 
   try { await DB.open(); catches = await DB.all(); }
   catch (e) { toast('Stockage local indisponible'); }
@@ -409,7 +631,10 @@ async function main() {
   // Demande un stockage durable (évite que le système efface les données)
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
-  // Boutons principaux
+  // Onglets et boutons principaux
+  document.querySelectorAll('#tabbar button').forEach((b) => b.addEventListener('click', () => setTab(b.dataset.tab)));
+  $('#g-species').addEventListener('change', renderGallery);
+  $('#g-year').addEventListener('change', renderGallery);
   $('#fab').addEventListener('click', () => openAdd());
   $('#btn-locate').addEventListener('click', () => locateUser(true));
   $('#btn-menu').addEventListener('click', () => { $('#menu-status').textContent = ''; show('#sheet-menu'); });
@@ -418,7 +643,10 @@ async function main() {
   $('#add-cancel').addEventListener('click', closeAdd);
   $('#add-save').addEventListener('click', saveCatch);
   $('#photo-input').addEventListener('change', (e) => { onPhotoChosen(e.target.files[0]); e.target.value = ''; });
-  $('#f-species').addEventListener('change', (e) => { $('#custom-wrap').hidden = e.target.value !== OTHER; });
+  $('#f-species').addEventListener('change', updateFormVisibility);
+  $('#f-tech').addEventListener('change', updateFormVisibility);
+  $('#f-bait').addEventListener('change', updateFormVisibility);
+  $('#f-unmeasured').addEventListener('change', updateUnmeasured);
   const syncFromInputs = () => {
     const lat = num($('#f-lat').value), lon = num($('#f-lon').value);
     if (lat !== null && lon !== null && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {

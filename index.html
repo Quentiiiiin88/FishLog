@@ -15,7 +15,7 @@
 <link rel="stylesheet" href="lib/leaflet.css">
 <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="tab-map">
 
 <div id="map"></div>
 
@@ -55,6 +55,24 @@
         <label>Taille (cm)
           <input id="f-length" type="text" inputmode="decimal" autocomplete="off" placeholder="Ex. : 62">
         </label>
+        <label class="check-row">
+          <input id="f-unmeasured" type="checkbox"><span>Non mesuré</span>
+        </label>
+      </div>
+
+      <div class="group">
+        <label>Technique
+          <select id="f-tech"></select>
+        </label>
+        <label id="tech-custom-wrap" hidden>Technique (à préciser)
+          <input id="f-tech-custom" type="text" autocomplete="off" placeholder="Ex. : Cuiller">
+        </label>
+        <label id="bait-wrap" hidden>Appât
+          <select id="f-bait"></select>
+        </label>
+        <label id="bait-custom-wrap" hidden>Appât (à préciser)
+          <input id="f-bait-custom" type="text" autocomplete="off" placeholder="Ex. : Maïs">
+        </label>
       </div>
 
       <div class="group">
@@ -91,6 +109,7 @@
       <img id="det-photo" alt="" hidden>
       <dl class="facts">
         <div><dt>Taille</dt><dd id="det-length"></dd></div>
+        <div id="det-tech-row"><dt>Technique</dt><dd id="det-tech"></dd></div>
         <div><dt>Date</dt><dd id="det-date"></dd></div>
         <div><dt>Position</dt><dd id="det-pos"></dd></div>
       </dl>
@@ -120,6 +139,34 @@
     </div>
   </div>
 </div>
+
+<!-- Galerie -->
+<section id="view-gallery" class="view" hidden>
+  <div class="view-head">
+    <h1>Galerie</h1>
+    <div class="filters">
+      <select id="g-species" aria-label="Filtrer par espèce"></select>
+      <select id="g-year" aria-label="Filtrer par année"></select>
+    </div>
+    <p id="g-count" class="hint"></p>
+  </div>
+  <div id="g-grid" class="grid"></div>
+</section>
+
+<!-- Records -->
+<section id="view-records" class="view" hidden>
+  <div class="view-head">
+    <h1>Records</h1>
+    <p id="r-summary" class="hint"></p>
+  </div>
+  <div id="r-list" class="rlist"></div>
+</section>
+
+<nav id="tabbar" class="tabbar">
+  <button type="button" data-tab="map" class="active"><span>🗺️</span>Carte</button>
+  <button type="button" data-tab="gallery"><span>🖼️</span>Galerie</button>
+  <button type="button" data-tab="records"><span>🏆</span>Records</button>
+</nav>
 
 <div id="toast" class="toast" hidden></div>
 

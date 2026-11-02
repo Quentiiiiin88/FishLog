@@ -1,4 +1,4 @@
-const CACHE = 'fishlog-v1';
+const CACHE = 'fishlog-v2';
 const ASSETS = [
   './', './index.html', './style.css', './app.js', './manifest.webmanifest',
   './lib/leaflet.js', './lib/leaflet.css', './lib/exifr.js',
